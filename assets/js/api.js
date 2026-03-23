@@ -1,7 +1,6 @@
-// Global API functions for file:// compatibility
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '' 
     ? 'http://127.0.0.1:8000/api' 
-    : 'https://YOUR_BACKEND_APP.onrender.com/api'; // Replace with your Render URL after deployment
+    : 'https://codecomplexity-backend.onrender.com/api'; // Connected to Render backend
 
 async function analyzeCode(code, save = false, fileName = '') {
     const response = await fetch(`${API_BASE_URL}/analyze/`, {
