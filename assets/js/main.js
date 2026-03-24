@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     let typingTimer;
-    const LIVE_DELAY = 800; // 800ms debounce
+    const LIVE_DELAY = 200; // 200ms debounce
     
     const handleContentChange = () => {
         statusEl.innerHTML = 'Typing...';

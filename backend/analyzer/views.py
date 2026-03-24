@@ -7,8 +7,7 @@ from .engine import analyze_python_code
 # Setup MongoDB
 try:
     client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
-    # Check if server is actually available
-    client.server_info()
+    # Lazy connection strategy: we no longer block with client.server_info()
     db = client['code_complexity_analyzer']
     history_collection = db['analysis_history']
 except Exception as e:
@@ -90,7 +89,7 @@ def explain_code(request):
             user_prompt = f"Code:\n{code}\n\nDetected complexity: {time_complexity}"
 
             payload = {
-                "model": "meta/llama-3.1-70b-instruct",
+                "model": "meta/llama-3.1-8b-instruct",
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -149,7 +148,7 @@ def fix_code(request):
             user_prompt = f"Issue detected: {issue}\n\nCode to fix:\n{code}"
             
             payload = {
-                "model": "meta/llama-3.1-70b-instruct",
+                "model": "meta/llama-3.1-8b-instruct",
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -202,7 +201,7 @@ def learn_code(request):
             user_prompt = f"Code:\n{code}\n\nDetected complexity: {time_complexity}"
 
             payload = {
-                "model": "meta/llama-3.1-70b-instruct",
+                "model": "meta/llama-3.1-8b-instruct",
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

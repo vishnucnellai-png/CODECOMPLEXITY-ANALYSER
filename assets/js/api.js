@@ -1,7 +1,6 @@
-const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '' 
-    ? 'http://127.0.0.1:8000/api' 
-    : 'https://codecomplexity-backend.onrender.com/api'; // Connected to Render backend
-
+const API_BASE_URL = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' || window.location.hostname === ''
+    ? 'http://127.0.0.1:8000/api'
+    : '/api'; // Use Vercel Serverless Functions relative path
 async function analyzeCode(code, save = false, fileName = '') {
     const response = await fetch(`${API_BASE_URL}/analyze/`, {
         method: 'POST',
