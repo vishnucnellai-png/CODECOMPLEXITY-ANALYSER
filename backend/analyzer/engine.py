@@ -8,6 +8,8 @@ class AdvancedComplexityVisitor(ast.NodeVisitor):
         self.has_recursion = False
         self.has_sort = False
         self.has_binary_search = False
+        self.has_large_allocation = False
+        self.max_nesting_allocation = 0
         self.functions = []
         self.current_function = None
         
@@ -34,9 +36,45 @@ class AdvancedComplexityVisitor(ast.NodeVisitor):
                 self.has_recursion = True
             if node.func.id == 'sorted':
                 self.has_sort = True
+            if node.func.id in ('list', 'dict', 'set', 'setattr', 'append', 'extend', 'update'):
+                self.has_large_allocation = True
+                self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth)
         elif isinstance(node.func, ast.Attribute):
             if node.func.attr == 'sort':
                 self.has_sort = True
+            if node.func.attr in ('append', 'extend', 'update', 'add', 'insert'):
+                self.has_large_allocation = True
+                self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth)
+        self.generic_visit(node)
+        
+    def visit_List(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth)
+        self.generic_visit(node)
+
+    def visit_Dict(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth)
+        self.generic_visit(node)
+
+    def visit_Set(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth)
+        self.generic_visit(node)
+
+    def visit_ListComp(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth + 1)
+        self.generic_visit(node)
+
+    def visit_DictComp(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth + 1)
+        self.generic_visit(node)
+
+    def visit_SetComp(self, node):
+        self.has_large_allocation = True
+        self.max_nesting_allocation = max(self.max_nesting_allocation, self.current_loop_depth + 1)
         self.generic_visit(node)
         
     def visit_BinOp(self, node):
@@ -147,6 +185,22 @@ def analyze_python_code(code: str):
             time_complexity = 'O(n³)'
         else:
             time_complexity = f'O(n^{visitor.max_loop_depth})'
+
+        # Determine space complexity
+        space_complexity = 'O(1)'
+        if visitor.has_recursion:
+            space_complexity = 'O(depth)'
+            alerts.append({"type": "info", "title": "Stack Space", "text": "Recursion uses O(depth) stack space."})
+        elif visitor.has_large_allocation:
+            if visitor.max_nesting_allocation == 0:
+                space_complexity = 'O(n)'
+            elif visitor.max_nesting_allocation == 1:
+                space_complexity = 'O(n²)'
+            else:
+                space_complexity = f'O(n^{visitor.max_nesting_allocation + 1})'
+            
+        if space_complexity != 'O(1)':
+            alerts.append({"type": "info", "title": "Memory Usage", "text": f"Detected dynamic memory allocation. Space complexity is around {space_complexity}."})
             
         if visitor.has_sort:
             alerts.append({"type": "info", "title": "Sorting Operation", "text": "A sort operation was detected, adding O(n log n) complexity."})
@@ -174,6 +228,7 @@ def analyze_python_code(code: str):
         return {
             "loc": loc,
             "timeComplexity": time_complexity,
+            "spaceComplexity": space_complexity,
             "cyclomaticComplexity": visitor.cyclomatic_complexity,
             "maxNestingDepth": visitor.max_loop_depth,
             "alerts": alerts,

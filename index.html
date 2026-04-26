@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Code Complexity Analyser</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css">
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -92,6 +92,10 @@
                                 <span class="value" id="live-time-complexity">O(1)</span>
                             </div>
                             <div class="live-metric-box">
+                                <span class="label">Space</span>
+                                <span class="value" id="live-space-complexity">O(1)</span>
+                            </div>
+                            <div class="live-metric-box">
                                 <span class="label">Cyclomatic</span>
                                 <span class="value" id="live-cyclo-complexity">1</span>
                             </div>
@@ -136,6 +140,11 @@
                                 <h3>Time Complexity</h3>
                                 <div class="metric-value" id="time-complexity">-</div>
                                 <p class="metric-desc">Asymptotic execution time</p>
+                            </div>
+                            <div class="metric-card">
+                                <h3>Space Complexity</h3>
+                                <div class="metric-value" id="space-complexity">-</div>
+                                <p class="metric-desc">Memory allocation</p>
                             </div>
                             <div class="metric-card">
                                 <h3>Cyclomatic Complexity</h3>
@@ -256,15 +265,18 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    <script src="/static/libs/monaco/vs/loader.js"></script>
+    <script>
+        require.config({ paths: { 'vs': '/static/libs/monaco/vs' } });
+    </script>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({ startOnLoad: false, theme: 'dark', fontFamily: 'Inter' });
         window.mermaid = mermaid;
     </script>
-    <script src="assets/js/api.js"></script>
-    <script src="assets/js/editor.js"></script>
-    <script src="assets/js/ui.js"></script>
-    <script src="assets/js/main.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/editor.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

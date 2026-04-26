@@ -1,33 +1,78 @@
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from pymongo import MongoClient
 from .engine import analyze_python_code
+import urllib.request as urllib_req
+import re
 
-# Setup MongoDB
+NVIDIA_API_KEY = "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"
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NVIDIA_MODEL = "meta/llama-3.1-8b-instruct"
+
+def _call_nvidia(system_prompt, user_prompt, timeout=8):
+    """Call NVIDIA API. Returns (text, error_string)."""
+    payload = json.dumps({
+        "model": NVIDIA_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.2,
+        "top_p": 0.7,
+        "max_tokens": 1024
+    }).encode("utf-8")
+    req = urllib_req.Request(NVIDIA_URL, data=payload, headers={
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json"
+    })
+    try:
+        with urllib_req.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            content = data["choices"][0]["message"]["content"]
+            return content, None
+    except Exception as e:
+        print(f"NVIDIA API Error: {str(e)}")
+        return None, str(e)
+
+def _parse_ai_json(raw_text):
+    """Robustly parse JSON from AI response, handling markdown blocks."""
+    if not raw_text:
+        return None
+    
+    # Standard non-recursive brace finding
+    try:
+        start = raw_text.find('{')
+        end = raw_text.rfind('}')
+        if start != -1 and end != -1:
+            json_str = raw_text[start:end+1]
+            return json.loads(json_str)
+    except Exception:
+        pass
+    return None
+
+# MongoDB — optional
 try:
-    client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
-    # Lazy connection strategy: we no longer block with client.server_info()
-    db = client['code_complexity_analyzer']
-    history_collection = db['analysis_history']
-except Exception as e:
-    client = None
+    from pymongo import MongoClient
+    _client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+    _client.server_info()
+    db = _client["code_complexity_analyzer"]
+    history_collection = db["analysis_history"]
+    MONGO_OK = True
+except Exception:
+    MONGO_OK = False
+
 
 @csrf_exempt
 def analyze_code(request):
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code = data.get('code', '')
-            save = data.get('save', False)
-            file_name = data.get('fileName', 'Untitled Snippet')
-            from datetime import datetime
-            
-            # Run engine
+            code = data.get("code", "")
+            save = data.get("save", False)
+            file_name = data.get("fileName", "Untitled Snippet")
             result = analyze_python_code(code)
-            
-            # Save to MongoDB
-            if save and client:
+            if save and MONGO_OK:
+                from datetime import datetime
                 try:
                     history_collection.insert_one({
                         "fileName": file_name,
@@ -35,249 +80,148 @@ def analyze_code(request):
                         "code": code,
                         "loc": result["loc"],
                         "timeComplexity": result["timeComplexity"],
+                        "spaceComplexity": result.get("spaceComplexity", "O(1)"),
                         "cyclomaticComplexity": result["cyclomaticComplexity"]
                     })
                 except Exception:
                     pass
-                    
             return JsonResponse(result)
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
-            
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
 
 @csrf_exempt
 def compare_code(request):
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code1 = data.get('code1', '')
-            code2 = data.get('code2', '')
-            
-            res1 = analyze_python_code(code1)
-            res2 = analyze_python_code(code2)
-            
-            return JsonResponse({
-                "code1": res1,
-                "code2": res2
-            })
+            res1 = analyze_python_code(data.get("code1", ""))
+            res2 = analyze_python_code(data.get("code2", ""))
+            return JsonResponse({"code1": res1, "code2": res2})
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
 
 @csrf_exempt
 def explain_code(request):
-    import urllib.request as urllib_req
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code = data.get('code', '')
-            time_complexity = data.get('timeComplexity', 'Unknown')
-
-            api_key = "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"
-            url = "https://integrate.api.nvidia.com/v1/chat/completions"
-
+            code = data.get("code", "")
+            time_complexity = data.get("timeComplexity", "Unknown")
+            space_complexity = data.get("spaceComplexity", "Unknown")
             system_prompt = (
-                "You are an expert Python code analyst. Given a Python code snippet and its detected time complexity, "
+                "You are an expert Python code analyst. Given a Python code snippet and its detected complexities, "
                 "respond with a JSON object with exactly these 3 keys:\n"
-                "1. 'suggestions': a list of 2-4 short, specific AI suggestions (e.g. 'Reduce nested loop → use a set for O(1) lookups')\n"
-                "2. 'explanation': a 2-4 sentence plain English explanation of what the code does and why it has the detected complexity (e.g. 'This outer loop runs n times...')\n"
-                "3. 'refactors': a list of 2-3 specific auto-refactor tips (e.g. 'Extract inner loop into a helper function', 'Replace list with set for faster membership checks')\n"
-                "ONLY return valid JSON. No markdown, no explanation text outside the JSON."
+                "1. 'suggestions': a list of 2-4 short, specific AI suggestions\n"
+                "2. 'explanation': a 2-4 sentence plain English explanation covering both TIME and SPACE complexity\n"
+                "3. 'refactors': a list of 2-3 specific auto-refactor tips\n"
+                "ONLY return valid JSON. Do not include markdown code fences or any other text."
             )
-
-            user_prompt = f"Code:\n{code}\n\nDetected complexity: {time_complexity}"
-
-            payload = {
-                "model": "meta/llama-3.1-8b-instruct",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.2
-            }
-            req_data = json.dumps(payload).encode('utf-8')
-            req = urllib_req.Request(url, data=req_data, headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+            raw, err = _call_nvidia(system_prompt, f"Code:\n{code}\n\nTime complexity: {time_complexity}\nSpace complexity: {space_complexity}")
+            parsed = _parse_ai_json(raw)
+            if parsed:
+                return JsonResponse(parsed)
+            
+            # Offline fallback
+            result = analyze_python_code(code)
+            suggestions = ["Consider reducing nested loops." if result.get('maxNestingDepth', 0) > 1 else "Code looks clean!"]
+            return JsonResponse({
+                "suggestions": suggestions,
+                "explanation": f"Time: {time_complexity}, Space: {result.get('spaceComplexity', 'O(1)')}. (Offline Fallback)",
+                "refactors": ["Extract repeated logic into helper functions.", "Use list comprehensions where possible."]
             })
-
-            try:
-                with urllib_req.urlopen(req, timeout=20) as response:
-                    res_data = json.loads(response.read().decode('utf-8'))
-                    raw = res_data['choices'][0]['message']['content']
-                    # Parse the JSON from Groq response
-                    import re
-                    json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-                    if json_match:
-                        parsed = json.loads(json_match.group())
-                        return JsonResponse(parsed)
-                    else:
-                        return JsonResponse({"error": "Could not parse AI response"}, status=500)
-            except urllib_req.HTTPError as http_err:
-                body = http_err.read().decode('utf-8', errors='ignore')
-                return JsonResponse({"error": f"NVIDIA HTTP {http_err.code}: {body[:300]}"}, status=500)
-            except Exception as api_err:
-                return JsonResponse({"error": "AI Explain Error: " + str(api_err)}, status=500)
-
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
 
 @csrf_exempt
 def fix_code(request):
-    import urllib.request as urllib_req
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code = data.get('code', '')
-            issue = data.get('issue', 'unknown issue')  # e.g. "Syntax Error" or "O(n²) nested loops"
-
-            api_key = "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"
-            url = "https://integrate.api.nvidia.com/v1/chat/completions"
-            
+            code = data.get("code", "")
+            issue = data.get("issue", "unknown issue")
             system_prompt = (
-                "You are an expert Python code fixer and optimizer. "
-                "The user has a Python program with an issue. "
-                "Fix ONLY the problem in their code while keeping their exact logic, variable names, and structure intact. "
-                "If it's a syntax error, fix the syntax. "
-                "If it's a complexity issue like O(n²), optimize just that section to a better algorithm. "
+                "You are an expert Python code fixer. Fix ONLY the problem in the user's code while keeping their logic intact. "
                 "Return ONLY the complete fixed Python code. No explanations, no markdown, no code fences."
             )
-            
-            user_prompt = f"Issue detected: {issue}\n\nCode to fix:\n{code}"
-            
-            payload = {
-                "model": "meta/llama-3.1-8b-instruct",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.1
-            }
-            req_data = json.dumps(payload).encode('utf-8')
-            req = urllib_req.Request(url, data=req_data, headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            })
-            
-            try:
-                with urllib_req.urlopen(req, timeout=20) as response:
-                    res_data = json.loads(response.read().decode('utf-8'))
-                    fixed = res_data['choices'][0]['message']['content']
-                    fixed = fixed.replace('```python', '').replace('```', '').strip()
-                    return JsonResponse({"fixedCode": fixed})
-            except urllib_req.HTTPError as http_err:
-                body = http_err.read().decode('utf-8', errors='ignore')
-                return JsonResponse({"error": f"NVIDIA HTTP {http_err.code}: {body[:300]}"}, status=500)
-            except Exception as api_err:
-                return JsonResponse({"error": "AI Fix Error: " + str(api_err)}, status=500)
-                
+            raw, err = _call_nvidia(system_prompt, f"Issue: {issue}\n\nCode:\n{code}")
+            if raw:
+                fixed = re.sub(r'```python|```', '', raw).strip()
+                return JsonResponse({"fixedCode": fixed})
+            # Offline fallback
+            result = analyze_python_code(code)
+            return JsonResponse({"fixedCode": result.get("suggestedCode") or code})
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
 
 @csrf_exempt
 def learn_code(request):
-    import urllib.request as urllib_req
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code = data.get('code', '')
-            time_complexity = data.get('timeComplexity', 'Unknown')
-
-            api_key = "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"
-            url = "https://integrate.api.nvidia.com/v1/chat/completions"
-
+            code = data.get("code", "")
+            time_complexity = data.get("timeComplexity", "Unknown")
+            space_complexity = data.get("spaceComplexity", "Unknown")
             system_prompt = (
-                "You are an expert Computer Science Professor and Code Instructor. "
-                "Provided with a Python code snippet and its detected time complexity, respond with a JSON object with exactly these 2 keys:\n"
-                "1. 'steps': A list of objects, each with 'line' (string, the code line) and 'explanation' (string, what happens here, variable state simulated).\n"
-                "2. 'deepDive': A detailed (2-3 paragraphs) technical 'Masterclass' explanation of how the time complexity was derived (e.g., recursive tree, nested summations).\n"
-                "Structure the 'steps' chronologically by logical flow. "
-                "ONLY return valid JSON. No markdown, no explanation outside the JSON."
+                "You are an expert CS Professor. Given Python code and its complexities, respond with a JSON object with:\n"
+                "1. 'steps': list of {line, explanation} objects\n"
+                "2. 'deepDive': 2-3 paragraph technical masterclass explanation covering BOTH time and space complexity\n"
+                "ONLY return valid JSON. No markdown outside the JSON."
             )
-
-            user_prompt = f"Code:\n{code}\n\nDetected complexity: {time_complexity}"
-
-            payload = {
-                "model": "meta/llama-3.1-8b-instruct",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.2
-            }
-            req_data = json.dumps(payload).encode('utf-8')
-            req = urllib_req.Request(url, data=req_data, headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            })
-
-            try:
-                with urllib_req.urlopen(req, timeout=30) as response:
-                    res_data = json.loads(response.read().decode('utf-8'))
-                    raw = res_data['choices'][0]['message']['content']
-                    import re
-                    json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-                    if json_match:
-                        parsed = json.loads(json_match.group())
-                        return JsonResponse(parsed)
-                    else:
-                        return JsonResponse({"error": "Could not parse AI response"}, status=500)
-            except urllib_req.HTTPError as http_err:
-                body = http_err.read().decode('utf-8', errors='ignore')
-                return JsonResponse({"error": f"NVIDIA HTTP {http_err.code}: {body[:300]}"}, status=500)
-            except Exception as api_err:
-                return JsonResponse({"error": "AI Learning Error: " + str(api_err)}, status=500)
+            raw, err = _call_nvidia(system_prompt, f"Code:\n{code}\n\nTime: {time_complexity}\nSpace: {space_complexity}", timeout=8)
+            parsed = _parse_ai_json(raw)
+            if parsed:
+                return JsonResponse(parsed)
+            # Offline fallback
+            result = analyze_python_code(code)
+            lines = [l for l in code.split("\n") if l.strip()]
+            steps = [{"line": l.strip(), "explanation": "Python executes this statement sequentially."} for l in lines[:20]]
+            return JsonResponse({"steps": steps, "deepDive": f"<strong>Complexity: Time {time_complexity}, Space {result.get('spaceComplexity', 'O(1)')}</strong><br>AI explanation unavailable at this moment."})
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
     return JsonResponse({"error": "Method not allowed"}, status=405)
 
+
 @csrf_exempt
 def login_code(request):
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             data = json.loads(request.body)
-            code = data.get('code', '')
-            
-            # The official challenge: Write a function unlock(a, b) that returns a + b
-            # We'll test it with a few cases
+            code = data.get("code", "")
             test_cases = [(10, 20, 30), (5, -5, 0), (100, 200, 300)]
-            
             namespace = {}
             try:
-                # Execute the user's code in a isolated namespace
                 exec(code, namespace)
-                
-                if 'unlock' not in namespace:
+                if "unlock" not in namespace:
                     return JsonResponse({"success": False, "error": "Function 'unlock' not found in your code."})
-                
-                unlock_func = namespace['unlock']
-                
+                unlock_func = namespace["unlock"]
                 for a, b, expected in test_cases:
                     if unlock_func(a, b) != expected:
                         return JsonResponse({"success": False, "error": f"Test failed: unlock({a}, {b}) did not return {expected}"})
-                
                 return JsonResponse({"success": True, "message": "Code Login Successful! Dashboard Unlocked."})
-                
             except Exception as e:
                 return JsonResponse({"success": False, "error": f"Execution Error: {str(e)}"})
-                
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
     return JsonResponse({"error": "Method not allowed"}, status=405)
 
+
 @csrf_exempt
 def get_history(request):
-    if request.method == 'GET':
-        if client:
+    if request.method == "GET":
+        if MONGO_OK:
             try:
-                # Fetch recent 15 records
-                records = list(history_collection.find({}, {'_id': 0}).sort('_id', -1).limit(15))
+                records = list(history_collection.find({}, {"_id": 0}).sort("_id", -1).limit(15))
                 return JsonResponse({"history": records})
             except Exception as e:
                 return JsonResponse({"error": str(e)}, status=500)
         else:
-            return JsonResponse({"error": "MongoDB not connected. Ensure mongod is running natively on port 27017."}, status=500)
+            return JsonResponse({"error": "MongoDB not connected. Start mongod to enable history."}, status=500)
     return JsonResponse({"error": "Method not allowed"}, status=405)

@@ -1,7 +1,7 @@
-// Global Editor Initialization
+// Global Editor Initialization — uses locally bundled Monaco
 function initEditors() {
     return new Promise((resolve) => {
-        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
+        // Monaco is loaded via loader.js in index.html; just use require()
         require(['vs/editor/editor.main'], function() {
             window.editor = monaco.editor.create(document.getElementById('editor-container'), {
                 value: `# Code Complexity Analyser\n# Real-time analysis using Python AST & AI\n\n# Let's inspect some code quality!\n\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    \n    # Performance Warning: Exponential logic\n    # O(2^n) time complexity detected\n    return fibonacci(n - 1) + fibonacci(n - 2)\n\ndef process_array(items):\n    result = []\n    \n    # Performance Warning: Nested Loop detected via AST Analyzer\n    for i in range(len(items)):\n        for j in range(len(items)):\n            if items[i] == items[j]:\n                result.append(items[i])\n                \n    return result`,

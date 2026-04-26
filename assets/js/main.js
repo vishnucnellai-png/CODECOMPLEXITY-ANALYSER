@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const statusEl = document.getElementById('global-status');
     const cycloVal = document.getElementById('cyclo-complexity');
     const timeVal = document.getElementById('time-complexity');
+    const spaceVal = document.getElementById('space-complexity');
     const nestingVal = document.getElementById('nesting-depth');
     const locVal = document.getElementById('loc');
     const alertsContainer = document.getElementById('alerts-container');
@@ -67,11 +68,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const result = await analyzeCode(code, false);
             
             const liveTime = document.getElementById('live-time-complexity');
+            const liveSpace = document.getElementById('live-space-complexity');
             const liveCyclo = document.getElementById('live-cyclo-complexity');
             const liveAlerts = document.getElementById('live-alerts-container');
             const sgText = document.getElementById('live-suggestion-text');
             
             if (liveTime) liveTime.innerText = result.timeComplexity;
+            if (liveSpace) liveSpace.innerText = result.spaceComplexity || 'O(1)';
             if (liveCyclo) liveCyclo.innerText = result.cyclomaticComplexity;
             
             if (liveAlerts) {
@@ -123,26 +126,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     async function performSave() {
+        const code = editor.getValue();
+        if (!code || code.trim() === "") {
+            alert("Please enter some code before saving.");
+            return;
+        }
+
         const fileName = prompt("Enter a name for this code snippet:", "My Code Snippet");
         if (fileName === null || fileName.trim() === "") return;
 
-        const code = editor.getValue();
         const btn = document.getElementById('save-analysis');
-        const originalText = btn.innerText;
-        btn.innerText = 'Saving...';
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ Saving...';
         btn.disabled = true;
         try {
             const data = await analyzeCode(code, true, fileName.trim());
             if (data && !data.error) {
-                btn.innerText = 'Saved!';
-                setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000);
+                btn.innerHTML = '✅ Saved!';
+                setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
             } else {
-                btn.innerText = 'Error Saving';
-                setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000);
+                btn.innerHTML = '❌ Error';
+                alert("Save Failed: " + (data.error || "Unknown error"));
+                setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
             }
         } catch (e) {
-            btn.innerText = 'Error Saving';
-            setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000);
+            btn.innerHTML = '❌ Error';
+            alert("Connection error while saving.");
+            setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
         }
     }
 
@@ -165,6 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             locVal.innerText = result.loc;
             timeVal.innerText = result.timeComplexity;
+            spaceVal.innerText = result.spaceComplexity || 'O(1)';
             cycloVal.innerText = result.cyclomaticComplexity;
             nestingVal.innerText = result.maxNestingDepth;
             
@@ -261,6 +272,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             locVal.innerHTML = `<span style="color:var(--text-main)">${r1.loc}</span> &nbsp;<span style="font-size:0.6em;color:var(--text-muted)">vs</span>&nbsp; <span style="color:var(--primary)">${r2.loc}</span>`;
             timeVal.innerHTML = `<span style="color:var(--text-main)">${r1.timeComplexity}</span> &nbsp;<span style="font-size:0.6em;color:var(--text-muted)">vs</span>&nbsp; <span style="color:var(--primary)">${r2.timeComplexity}</span>`;
+            spaceVal.innerHTML = `<span style="color:var(--text-main)">${r1.spaceComplexity || 'O(1)'}</span> &nbsp;<span style="font-size:0.6em;color:var(--text-muted)">vs</span>&nbsp; <span style="color:var(--primary)">${r2.spaceComplexity || 'O(1)'}</span>`;
             cycloVal.innerHTML = `<span style="color:var(--text-main)">${r1.cyclomaticComplexity}</span> &nbsp;<span style="font-size:0.6em;color:var(--text-muted)">vs</span>&nbsp; <span style="color:var(--primary)">${r2.cyclomaticComplexity}</span>`;
             nestingVal.innerHTML = `<span style="color:var(--text-main)">${r1.maxNestingDepth}</span> &nbsp;<span style="font-size:0.6em;color:var(--text-muted)">vs</span>&nbsp; <span style="color:var(--primary)">${r2.maxNestingDepth}</span>`;
             

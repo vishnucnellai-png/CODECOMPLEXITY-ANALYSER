@@ -23,6 +23,13 @@ function setupUI(editors) {
         const activeBtn = document.querySelector(`.nav-btn[data-target="${viewId}"]`);
         if (activeBtn) activeBtn.classList.add('active');
 
+        if (viewId === 'view-analyze') {
+            const locVal = document.getElementById('loc');
+            if (!locVal || locVal.innerText === '-' || locVal.innerText === '') {
+                // Not scanned yet
+            }
+        }
+
         if (viewId === 'view-dashboard') {
             setTimeout(() => {
                 editor.layout();
@@ -140,7 +147,9 @@ function setupUI(editors) {
     document.getElementById('btn-generate-insights').addEventListener('click', async () => {
         const code = editor.getValue();
         const timeVal = document.getElementById('time-complexity').innerText;
-        const tc = (timeVal === '-' || timeVal === '') ? 'O(n)' : timeVal; 
+        const spaceVal = document.getElementById('space-complexity').innerText;
+        const tc = (timeVal === '-' || timeVal === '') ? 'O(n)' : timeVal;
+        const sc = (spaceVal === '-' || spaceVal === '') ? 'O(1)' : spaceVal;
 
         const stepsDiv = document.getElementById('learning-steps');
         const deepDiveDiv = document.getElementById('learning-deepdive');
@@ -153,40 +162,43 @@ function setupUI(editors) {
         document.getElementById('btn-generate-insights').disabled = true;
 
         try {
-            learnCode(code, tc).then(data => {
-                if (data.error) {
-                    stepsDiv.innerHTML = `<div class="alert danger">${data.error}</div>`;
-                } else {
-                    stepsDiv.innerHTML = '';
-                    if (data.steps && data.steps.length) {
-                        data.steps.forEach((step, idx) => {
-                            const stepEl = document.createElement('div');
-                            stepEl.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px;';
-                            stepEl.innerHTML = `
-                                <div style="font-family: monospace; color: var(--primary); font-size: 0.85rem; margin-bottom: 5px;">Line ${idx + 1}: ${step.line}</div>
-                                <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">${step.explanation}</div>
-                            `;
-                            stepsDiv.appendChild(stepEl);
-                        });
-                    }
-                    deepDiveDiv.innerHTML = data.deepDive || "No deep dive available.";
-                }
-            });
+            // Run in parallel
+            const [data, insights] = await Promise.all([
+                learnCode(code, tc, sc),
+                explainCode(code, tc, sc)
+            ]);
 
-            explainCode(code, tc).then(insights => {
-                if (insights.error) {
-                    explanationDiv.innerHTML = `<div class="alert warning">${insights.error}</div>`;
-                } else {
-                    explanationDiv.innerText = insights.explanation || "No explanation provided.";
-                    const optContainer = document.getElementById('optimization-container');
-                    if(optContainer && insights.refactors && insights.refactors.length > 0) {
-                         optContainer.innerHTML = insights.refactors.map(r => `<div class="alert warning" style="margin-bottom:10px">🔧 ${r}</div>`).join('');
-                    }
+            if (data.error) {
+                stepsDiv.innerHTML = `<div class="alert danger">${data.error}</div>`;
+            } else {
+                stepsDiv.innerHTML = '';
+                if (data.steps && data.steps.length) {
+                    data.steps.forEach((step, idx) => {
+                        const stepEl = document.createElement('div');
+                        stepEl.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px;';
+                        stepEl.innerHTML = `
+                            <div style="font-family: monospace; color: var(--primary); font-size: 0.85rem; margin-bottom: 5px;">Line ${idx + 1}: ${step.line}</div>
+                            <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">${step.explanation}</div>
+                        `;
+                        stepsDiv.appendChild(stepEl);
+                    });
                 }
-            });
+                deepDiveDiv.innerHTML = data.deepDive || "No deep dive available.";
+            }
 
+            if (insights.error) {
+                explanationDiv.innerHTML = `<div class="alert warning">${insights.error}</div>`;
+            } else {
+                explanationDiv.innerText = insights.explanation || "No explanation provided.";
+                const optContainer = document.getElementById('optimization-container');
+                if(optContainer && insights.refactors && insights.refactors.length > 0) {
+                     optContainer.innerHTML = insights.refactors.map(r => `<div class="alert warning" style="margin-bottom:10px">🔧 ${r}</div>`).join('');
+                }
+            }
         } catch (e) {
-            stepsDiv.innerHTML = '<div class="alert danger">Failed to connect to Learning API.</div>';
+            stepsDiv.innerHTML = '<div class="alert danger">Communication Error: The AI is unavailable right now. Try again in a moment.</div>';
+            explanationDiv.innerHTML = '<div class="alert danger">Offline Fallback triggered. Check your internet or API key.</div>';
+            console.error(e);
         } finally {
             document.getElementById('btn-generate-insights').disabled = false;
         }

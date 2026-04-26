@@ -1,6 +1,5 @@
-const API_BASE_URL = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' || window.location.hostname === ''
-    ? 'http://127.0.0.1:8000/api'
-    : '/api'; // Use Vercel Serverless Functions relative path
+// Always use the local Django backend server
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 async function analyzeCode(code, save = false, fileName = '') {
     const response = await fetch(`${API_BASE_URL}/analyze/`, {
         method: 'POST',
@@ -19,11 +18,11 @@ async function compareCode(code1, code2) {
     return await response.json();
 }
 
-async function explainCode(code, timeComplexity) {
+async function explainCode(code, timeComplexity, spaceComplexity) {
     const response = await fetch(`${API_BASE_URL}/explain/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code, timeComplexity: timeComplexity })
+        body: JSON.stringify({ code: code, timeComplexity: timeComplexity, spaceComplexity: spaceComplexity })
     });
     return await response.json();
 }
@@ -37,11 +36,11 @@ async function fixCode(code, issueDesc) {
     return await response.json();
 }
 
-async function learnCode(code, timeComplexity) {
+async function learnCode(code, timeComplexity, spaceComplexity) {
     const response = await fetch(`${API_BASE_URL}/learn/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code, timeComplexity: timeComplexity })
+        body: JSON.stringify({ code: code, timeComplexity: timeComplexity, spaceComplexity: spaceComplexity })
     });
     return await response.json();
 }
